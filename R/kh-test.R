@@ -24,7 +24,7 @@ kh_test <- function(score1, score2, performance, draws = 10000L, na.rm = FALSE) 
                    y = performance)
   dt <- na.omit(dt)
 
-  if (nrow(dt) < length(score1))
+  if (na.rm == FALSE & nrow(dt) < length(score1))
     stop('Missing values found in data supplied to kh_test.')
 
   score_cor <- cor(dt$s1, dt$s2, use = 'pairwise.complete.obs')
