@@ -15,46 +15,51 @@
 #' @export
 kh_test <- function(score1, score2, performance, draws = 10000L, na.rm = FALSE) {
   # Check dimensions of input variables
-  if (length(score1) != length(score2) | length(score1) != length(performace)) {
+  if (length(score1) != length(score2) | length(score1) != length(performance)) {
     stop("Lengths of scores and performance must be equal.")
   }
 
-  dt <- data.table(s1 = score1,
+  dt <- data.frame(s1 = score1,
                    s2 = score2,
-                   y = performance) %>%
-    .[!is.na(s1) & !is.na(s2) & !is.na(y)] %>%
-    melt(id.vars = 'y', variable.name = 's', value.name = 'score')
+                   y = performance)
+  dt <- na.omit(dt)
 
-  if (nrows(dt) < length(s1))
+  if (nrow(dt) < length(score1))
     stop('Missing values found in data supplied to kh_test.')
 
   score_cor <- cor(dt$s1, dt$s2, use = 'pairwise.complete.obs')
 
-  ks_dt <- dt[, .(ks = run_ks(score, y)), by = 's']
+  ks_s1 <- ks.test(dt$s1[dt$y == 1], dt$s1[dt$y == 0])[[1]]
+  ks_s2 <- ks.test(dt$s2[dt$y == 1], dt$s2[dt$y == 0])[[1]]
 
-  temp <- dt[, .(xbar = mean(score),
-                 sdev = sd(score)), by = c('s', 'y')]
+  # Calculate mean scores by performance
+  sbar_11 <- mean(dt$s1[dt$y == 1])
+  sbar_10 <- mean(dt$s1[dt$y == 0])
+  sbar_21 <- mean(dt$s2[dt$y == 1])
+  sbar_20 <- mean(dt$s2[dt$y == 0])
 
-  a1 <- (temp[s == 's1' & y == 1, xbar] - temp[s == 's1' & y == 0, xbar]) / temp[s == 's1' & y == 1, sd]
-  a2 <- (temp[s == 's2' & y == 1, xbar] - temp[s == 's2' & y == 0, xbar]) / temp[s == 's2' & y == 1, sd]
-  b1 <- temp[s == 's1' & y == 0, sd] / temp[s == 's1' & y == 1, sd]
-  b2 <- temp[s == 's2' & y == 0, sd] / temp[s == 's2' & y == 1, sd]
-  a <- (a1 + a2) / 2
-  b <- (b1 + b2) / 2
+  ssig_11 <- sd(dt$s1[dt$y == 1])
+  ssig_10 <- sd(dt$s1[dt$y == 0])
+  ssig_21 <- sd(dt$s2[dt$y == 1])
+  ssig_20 <- sd(dt$s2[dt$y == 0])
 
-  results <- purrr::map_dbl(c(1:draws),
-                            simulate,
-                            n = dt[y == 1, .N],
-                            m = dt[y == 0, .N],
-                            correlation = score_cor,
-                            mu = a / b,
-                            sigma = 1 / b)
+  a <- ((sbar_11 - sbar_10) / ssig_11) + ((sbar_21 - sbar_20) / ssig_21) / 2
+  b <- ((ssig_10 / ssig_11) + (ssig_20 / ssig_21)) / 2
+
+  results <- vapply(X = c(1:draws),
+                    FUN = simulate,
+                    FUN.VALUE = 3.2,
+                    n = sum(dt$y == 1),
+                    m = sum(dt$y == 0),
+                    correlation = score_cor,
+                    mu = a / b,
+                    sigma = 1 / b)
 
   ret_val <- list()
   class(ret_val) <- 'kh_result'
-  ret_val$ks1 <- ks_dt[s == 's1', ks]
-  ret_val$ks2 <- ks_dt[s == 's2', ks]
-  ret_val$pval <- mean(results > abs(ret_val$ks1 - ret_val$ks2))
+  ret_val$ks1 <- ks_s1
+  ret_val$ks2 <- ks_s2
+  ret_val$pval <- mean(results > abs(ks_s1 - ks_s2))
 
   ret_val
 }
@@ -73,9 +78,7 @@ simulate <- function(i, n, m, correlation, mu, sigma) {
   a <- rmvnorm(n, correlation)
   b <- rmvnorm(m, correlation, mu, sigma)
 
-  abs(run_ks(a[, 1], b[, 1]) - run_ks(a[, 2], b[, 2]))
+  abs(ks.test(a[, 1], b[, 1])[[1]] - ks.test(a[, 2], b[, 2])[[1]])
 }
 
-run_ks <- function(s, y) {
-  ks.test(s[y == 1], s[y == 0])[[1]]
-}
+
